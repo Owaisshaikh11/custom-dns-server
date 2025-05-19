@@ -14,7 +14,7 @@ function startHttpApi(port) {
   app.use(cors());
 
   //* Routes
-  
+
   app.get("/api/dns/subdomains", (req, res) => {
     const result = [...dynamicSubdomains.entries()].map(([domain, data]) => ({
       domain,
@@ -50,7 +50,6 @@ function startHttpApi(port) {
     res.json(getRecords());
   });
 
-  // 404 handler
   app.use((req, res) => {
     res.status(404).json({ error: "Not found" });
   });
