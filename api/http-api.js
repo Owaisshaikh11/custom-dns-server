@@ -19,45 +19,61 @@ function startHttpApi(port) {
     const result = [...dynamicSubdomains.entries()].map(([domain, data]) => ({
       domain,
       ipAddress: data.ipAddress,
-      expires: new Date(data.expires).toISOString(),
+      expires: data.expires ? new Date(data.expires).toISOString() : null,
+      isPersistent: data.isPersistent
     }));
     res.json({ subdomains: result });
   });
 
-  app.post("/api/dns/subdomains", (req, res) => {
-    const { subdomain, domain, ipAddress, ttl } = req.body;
+  app.post("/api/dns/subdomains", async (req, res) => {
+    const { subdomain, domain, ipAddress, ttl, isPersistent } = req.body;
 
     if (!subdomain || !domain || !ipAddress) {
-      return res.status(400).json({ error: "Missing fields" });
+      return res.status(400).json({ error: "Missing required fields" });
     }
 
-    const domainName = addDynamicSubdomain(subdomain, domain, ipAddress, ttl);
-    res.json({ success: true, domain: domainName });
+    try {
+      const domainName = await addDynamicSubdomain(
+        subdomain, 
+        domain, 
+        ipAddress, 
+        ttl, 
+        isPersistent
+      );
+      res.json({ 
+        success: true, 
+        domain: domainName,
+        isPersistent: isPersistent || false
+      });
+    } catch (error) {
+      console.error('Error adding subdomain:', error);
+      res.status(500).json({ error: "Failed to add subdomain" });
+    }
   });
 
-  app.delete("/api/dns/subdomains", (req, res) => {
-    const { subdomain, domain } = req.body;
+  app.delete("/api/dns/subdomains", async (req, res) => {
+    const { subdomain, domain, type = 'all' } = req.body;
 
     if (!subdomain || !domain) {
-      return res.status(400).json({ error: "Missing fields" });
+      return res.status(400).json({ error: "Missing required fields" });
     }
 
-    const removed = removeDynamicSubdomain(subdomain, domain);
-    res.status(removed ? 200 : 404).json({ success: removed });
+    try {
+      const removed = await removeDynamicSubdomain(subdomain, domain, type);
+      res.status(removed ? 200 : 404).json({ success: removed });
+    } catch (error) {
+      console.error('Error removing subdomain:', error);
+      res.status(500).json({ error: "Failed to remove subdomain" });
+    }
   });
 
   app.get("/api/dns/records", (req, res) => {
     res.json(getRecords());
   });
 
-  app.use((req, res) => {
-    res.status(404).json({ error: "Not found" });
+  return app.listen(port, () => {
+    console.log(`HTTP API server running on port ${port}`);
   });
-
-  const server = app.listen(port, () =>
-    console.log(`HTTP API running on port ${port}`)
-  );
-  return server;
 }
 
 module.exports = { startHttpApi };

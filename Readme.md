@@ -1,7 +1,7 @@
 # Custom DNS Server
 
 - A custom DNS server with a RESTful HTTP API, designed mainly to be used in my cloud IDE project for subdomain based routing. Built with Node.js, Express, and UDP sockets, it supports dynamic subdomain management and loads DNS records from a JSON configuration file.
-- Persistence has not yet been implemented.
+- Now includes Redis persistence for dynamic subdomains and Docker support for easy deployment.
 - This is a personal project to learn DNS and to use it in another perssonal project that I am currently working on,
 - So there may be some errors and some beginnerish mistakes in this,Please correct me if you notice any. I would greatly appreciate it :)
 
@@ -13,7 +13,11 @@
 - dynamic subdomain management via HTTP API
 - Configurable DNS records via JSON file
 - REST API for managing and querying DNS records
-- automatic cleanup of expired dynamic subdomains
+- Two types of dynamic subdomains:
+  - Persistent Records: For long-lived subdomains (e.g., user workspaces)
+  - Ephemeral Records: For temporary subdomains with TTL (e.g., preview URLs)
+- Redis persistence for dynamic subdomains
+- Docker support for easy deployment
 - Easy to extend and integrate
 
 ---
@@ -33,16 +37,41 @@
 
 ## Installation
 
+### Using Docker (Recommended)
+
+1. **Clone the repository:**
+
+   ```sh
+   git clone https://github.com/Owaisshaikh11/custom-dns-server
+   cd DNS_Project
+   ```
+
+2. **Start with Docker Compose:**
+
+   ```sh
+   docker-compose up
+   ```
+   This will start both the DNS server and Redis in containers.
+
+### Manual Installation
+
 1. **Clone the repository:**
 
    ```sh
    git clone <your-repo-url>
    cd DNS_Project
    ```
-2. **Install dependencies:**
 
+2. **Install dependencies:**
    ```sh
    npm install
+   ```
+
+3. **Start Redis server** (if not using Docker)
+
+4. **Start the DNS server:**
+   ```sh
+   npm start
    ```
 
 ---
@@ -57,11 +86,13 @@ npm start
 
 - DNS server runs on UDP port `5354` (changeable in `index.js`)
 - HTTP API runs on port `8053`
+- Redis runs on port `6379` (if using Docker)
 
 ---
 
 ## Configuration
 
+### DNS Records
 DNS records are stored in `config/dns-records.json`. Example format:
 
 ```json
@@ -81,6 +112,12 @@ DNS records are stored in `config/dns-records.json`. Example format:
 }
 ```
 
+### Environment Variables
+- `REDIS_HOST`: Redis server host (default: localhost)
+- `REDIS_PORT`: Redis server port (default: 6379)
+- `REDIS_PASSWORD`: Redis password (default: empty)
+- `REDIS_DB`: Redis database number (default: 0)
+
 ---
 
 ## HTTP API Endpoints
@@ -93,7 +130,18 @@ DNS records are stored in `config/dns-records.json`. Example format:
   ```json
   {
     "subdomains": [
-      { "domain": "sub.example.com", "ipAddress": "1.2.3.4", "expires": "2025-05-19T12:00:00.000Z" }
+      { 
+        "domain": "sub.example.com", 
+        "ipAddress": "1.2.3.4", 
+        "expires": "2025-05-19T12:00:00.000Z",
+        "isPersistent": false
+      },
+      {
+        "domain": "workspace.example.com",
+        "ipAddress": "1.2.3.5",
+        "expires": null,
+        "isPersistent": true
+      }
     ]
   }
   ```
@@ -104,9 +152,22 @@ DNS records are stored in `config/dns-records.json`. Example format:
 - **Body:**
 
   ```json
-  { "subdomain": "sub", "domain": "example.com", "ipAddress": "1.2.3.4", "ttl": 60 }
+  { 
+    "subdomain": "sub", 
+    "domain": "example.com", 
+    "ipAddress": "1.2.3.4", 
+    "ttl": 60,
+    "isPersistent": false
+  }
   ```
-- **Response:** `{ "success": true, "domain": "sub.example.com" }`
+- **Response:** 
+  ```json
+  {,M
+    "success": true, 
+    "domain": "sub.example.com",
+    "isPersistent": false
+  }
+  ```
 
 ### Remove Dynamic Subdomain
 
@@ -114,7 +175,11 @@ DNS records are stored in `config/dns-records.json`. Example format:
 - **Body:**
 
   ```json
-  { "subdomain": "sub", "domain": "example.com" }
+  { 
+    "subdomain": "sub", 
+    "domain": "example.com",
+    "type": "all"  // Optional: "persistent", "temp", or "all" (default)
+  }
   ```
 - **Response:** `{ "success": true }`
 
@@ -132,10 +197,13 @@ DNS_Project/
 ├── index.js                  # Entry point
 ├── package.json              # Project metadata and dependencies
 ├── Readme.md                 # Project documentation
+├── Dockerfile                # Docker configuration
+├── docker-compose.yml        # Docker Compose configuration
 ├── api/
 │   └── http-api.js           # HTTP API server
 ├── config/
-│   └── dns-records.json      # DNS records config
+│   ├── dns-records.json      # DNS records
+│   └── redis-config.js       # Redis configuration 
 ├── lib/
 │   ├── dns-parser.js         # DNS packet parsing logic
 │   ├── dns-resolver.js       # DNS query resolution logic
@@ -151,7 +219,6 @@ DNS_Project/
 
 ## Limitations
 
-- **No persistence (for now):** Dynamic subdomains and changes are stored in memory only and will be lost on server restart.Persistence is not yet supported, but learning and working on a Redis-based implementation.
 - **Partial support of IPv6:** IPv6 is addresses aree not fully supported, tough the querytype (AAAA) is handled but Static AAAA records may not be encoded correctly, especially for compressed IPv6 formats(::).
 - **Only Handles the First Question:** always writes only the first question.
 - **Basi and not production-hardened** Intended for development, testing, or internal use and mostly for learning purposes.
@@ -170,4 +237,4 @@ Built with ❤️ by [Owais](https://github.com/Owaisshaikh11)
 
 <!-- icons -->
 
-![Node](https://img.shields.io/badge/Node.js-22+-green) ![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
+![Node](https://img.shields.io/badge/Node.js-22+-green) ![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg) ![Redis](https://img.shields.io/badge/Redis-Enabled-red) ![Docker](https://img.shields.io/badge/Docker-Supported-blue)
