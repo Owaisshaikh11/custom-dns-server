@@ -13,6 +13,19 @@ function startHttpApi(port) {
   app.use(express.json());
   app.use(cors());
 
+  // Basic API Key Middleware
+  app.use((req, res, next) => {
+    // Only protect modification endpoints for now, or all if preferred
+    if (req.method === "POST" || req.method === "DELETE") {
+      const apiKey = req.headers["x-api-key"];
+      const configuredKey = process.env.API_KEY;
+      if (configuredKey && apiKey !== configuredKey) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+    }
+    next();
+  });
+
   //* Routes
 
   app.get("/api/dns/subdomains", (req, res) => {
@@ -67,8 +80,8 @@ function startHttpApi(port) {
     }
   });
 
-  app.get("/api/dns/records", (req, res) => {
-    res.json(getRecords());
+  app.get("/api/dns/records", async (req, res) => {
+    res.json(await getRecords());
   });
 
   return app.listen(port, () => {

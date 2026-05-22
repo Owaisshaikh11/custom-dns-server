@@ -11,7 +11,7 @@ function startDnsUdpServer(port = 53) {
 
   //rinfo : info about the client who sent it(ip & port of client)
   //msg : the message sent by the client(raw query packet)
-  server.on("message", (msg, rinfo) => {
+  server.on("message", async (msg, rinfo) => {
     try {
       const query = parseQuery(msg);
 
@@ -26,7 +26,7 @@ function startDnsUdpServer(port = 53) {
         `DNS Query: ${question.name} (Type ${question.type}) from ${rinfo.address}:${rinfo.port}`
       ); // Logging the basic DNS query
 
-      const answers = getRecordsForDomain(
+      const answers = await getRecordsForDomain(
         query.questions[0].name,
         query.questions[0].type
       );
