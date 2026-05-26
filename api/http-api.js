@@ -55,8 +55,8 @@ function startHttpApi(port) {
         ttlSeconds,
         persistent
       );
-      res.json({ 
-        success: true, 
+      res.json({
+        success: true,
         domain: domainName,
         isPersistent: persistent
       });

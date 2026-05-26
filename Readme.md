@@ -11,7 +11,7 @@
 
 - DNS server over UDP (A, AAAA, NS, MX, TXT, CNAME records)
 - Dynamic subdomain management via HTTP API
-- Configurable DNS records via flat JSON file
+- Configurable DNS records via JSON file
 - REST API for managing and querying DNS records
 - Two types of dynamic subdomains:
   - Persistent Records: For long-lived subdomains (e.g., user workspaces)
@@ -19,6 +19,7 @@
 - Optimized Redis Hash storage model for high performance, eliminating blocking `KEYS` commands and N+1 query loops
 - Robust security safeguards including DNS pointer loop DoS protection and buffer boundary checks
 - Full IPv6 AAAA record support, handling both fully qualified and compressed/shorthand (e.g., `::1`) IPv6 formats
+- Upstream Forwarding: Automatically forwards queries for unrecognized domains to upstream DNS servers with sequential fallback and configurable timeouts
 - Docker support for easy deployment
 - Easy to extend and integrate
 
@@ -113,10 +114,13 @@ DNS records are stored in `config/dns-records.json`. Example format (flat struct
 ```
 
 ### Environment Variables
-- `REDIS_HOST`: Redis server host (default: localhost)
-- `REDIS_PORT`: Redis server port (default: 6379)
+- `REDIS_HOST`: Redis server host (default: `localhost`)
+- `REDIS_PORT`: Redis server port (default: `6379`)
 - `REDIS_PASSWORD`: Redis password (default: empty)
-- `REDIS_DB`: Redis database number (default: 0)
+- `REDIS_DB`: Redis database number (default: `0`)
+- `DNS_FORWARD_ENABLED`: Enable upstream forwarding fallback (default: `true`)
+- `DNS_UPSTREAM_SERVERS`: Comma-separated list of DNS servers with optional custom ports (default: `8.8.8.8,8.8.4.4`)
+- `DNS_FORWARD_TIMEOUT`: Timeout for upstream DNS queries in milliseconds (default: `2000`)
 
 ---
 
@@ -202,9 +206,11 @@ DNS_Project/
 ├── api/
 │   └── http-api.js           # HTTP API server
 ├── config/
+│   ├── dns-config.js         # DNS and forwarding settings
 │   ├── dns-records.json      # DNS records
 │   └── redis-config.js       # Redis configuration 
 ├── lib/
+│   ├── dns-forwarder.js      # Upstream query forwarding logic
 │   ├── dns-parser.js         # DNS packet parsing logic
 │   ├── dns-resolver.js       # DNS query resolution logic
 │   ├── dns-writer.js         # DNS packet writing logic

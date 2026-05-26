@@ -1,7 +1,9 @@
 const dgram = require("dgram");
 const { parseQuery, createResponse, createErrorResponse } = require("../lib/dns-parser");
-const { getRecordsForDomain } = require("../lib/dns-resolver");
+const { getRecordsForDomain, isLocalDomain } = require("../lib/dns-resolver");
 const { CLASS_IN } = require("../lib/types");
+const { dnsConfig } = require("../config/dns-config");
+const { forwardQuery } = require("../lib/dns-forwarder");
 
 function startDnsUdpServer(port = 53) {
   const server = dgram.createSocket("udp4");
@@ -10,7 +12,7 @@ function startDnsUdpServer(port = 53) {
     console.error(`DNS server error: ${err.message}`);
   });
 
-  server.on("message", (msg, rinfo) => {
+  server.on("message", async (msg, rinfo) => {
     let query;
     try {
       query = parseQuery(msg);
@@ -45,6 +47,26 @@ function startDnsUdpServer(port = 53) {
         return;
       }
 
+      // Check if query should be forwarded to upstream DNS servers
+      if (dnsConfig.forwardEnabled && !isLocalDomain(question.name)) {
+        console.log(`Forwarding query for ${question.name} to upstream servers`);
+        const responseMsg = await forwardQuery(msg);
+        if (responseMsg) {
+          server.send(responseMsg, rinfo.port, rinfo.address, (sendErr) => {
+            if (sendErr) console.error("Error sending forwarded DNS response:", sendErr);
+          });
+          return;
+        } else {
+          console.warn(`Upstream resolution failed for ${question.name}. Sending SERVFAIL.`);
+          const response = createResponse(query, [], 2); // RCODE 2 = SERVFAIL
+          server.send(response, rinfo.port, rinfo.address, (sendErr) => {
+            if (sendErr) console.error("Error sending SERVFAIL response:", sendErr);
+          });
+          return;
+        }
+      }
+
+      // Local resolution
       const answers = getRecordsForDomain(question.name, question.type);
       const response = createResponse(query, answers);
       server.send(response, rinfo.port, rinfo.address, (sendErr) => {
