@@ -9,12 +9,15 @@ on:
     branches:
       - main
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   run-tests:
     name: Run Tests
     runs-on: ubuntu-latest
 
-    # you can uncomment the 'services' block below to run Redis in CI.
+    # uncomment the 'services' block below to run Redis in CI.
     # services:
     #   redis:
     #     image: redis:alpine
