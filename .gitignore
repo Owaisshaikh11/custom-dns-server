@@ -1,2 +1,6 @@
-/test
 node_modules/
+.env
+.antigravitycli
+.agents/
+skills-lock.json
+CONTEXT.md

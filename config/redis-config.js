@@ -2,9 +2,9 @@ const Redis = require('ioredis');
 
 const redisConfig = {
   host: process.env.REDIS_HOST || 'localhost',
-  port: process.env.REDIS_PORT || 6379,
+  port: Number(process.env.REDIS_PORT) || 6379,
   password: process.env.REDIS_PASSWORD || '',
-  db: process.env.REDIS_DB || 0,
+  db: Number(process.env.REDIS_DB) || 0,
   retryStrategy: (times) => {
     const delay = Math.min(times * 50, 2000);
     return delay;
@@ -24,60 +24,106 @@ redis.on('error', (err) => {
 // Helper functions for Redis operations
 const redisHelpers = {
   async setRecord(domain, record, type = 'temp') {
-    const key = `dns:${type}:${domain}`;
-    await redis.set(key, JSON.stringify(record));
-    if (type === 'temp' && record.ttl) {
-      await redis.expire(key, record.ttl);
+    const domainKey = domain.toLowerCase();
+    const recordToStore = { ...record };
+    if (type === 'persistent') {
+      recordToStore.isPersistent = true;
+      delete recordToStore.expires;
+    } else if (type === 'temp') {
+      recordToStore.isPersistent = false;
+      if (!recordToStore.expires && recordToStore.ttl) {
+        recordToStore.expires = Date.now() + recordToStore.ttl * 1000;
+      }
     }
+    await redis.hset('dns:records', domainKey, JSON.stringify(recordToStore));
     return true;
   },
 
   async getRecord(domain, type = 'temp') {
-    // Try persistent first, then temp
-    const persistentKey = `dns:persistent:${domain}`;
-    const tempKey = `dns:temp:${domain}`;
-    
-    const persistentRecord = await redis.get(persistentKey);
-    if (persistentRecord) {
-      return JSON.parse(persistentRecord);
+    const domainKey = domain.toLowerCase();
+    const raw = await redis.hget('dns:records', domainKey);
+    if (!raw) return null;
+
+    try {
+      const record = JSON.parse(raw);
+      if (record.expires && Date.now() > record.expires) {
+        await redis.hdel('dns:records', domainKey);
+        return null;
+      }
+      return record;
+    } catch (err) {
+      console.error(`Error parsing record for domain ${domain}:`, err);
+      return null;
     }
-    
-    const tempRecord = await redis.get(tempKey);
-    return tempRecord ? JSON.parse(tempRecord) : null;
   },
 
   async getAllRecords() {
-    const persistentKeys = await redis.keys('dns:persistent:*');
-    const tempKeys = await redis.keys('dns:temp:*');
+    const rawRecords = await redis.hgetall('dns:records');
     const records = {};
-    
-    for (const key of [...persistentKeys, ...tempKeys]) {
-      const domain = key.split(':').pop();
-      const record = await redis.get(key);
-      if (record) {
-        records[domain] = JSON.parse(record);
+    const expiredDomains = [];
+    const now = Date.now();
+
+    for (const [domain, rawStr] of Object.entries(rawRecords)) {
+      try {
+        const record = JSON.parse(rawStr);
+        if (record && record.expires && now > record.expires) {
+          expiredDomains.push(domain);
+        } else {
+          records[domain] = record;
+        }
+      } catch (err) {
+        console.error(`Failed to parse record for domain ${domain}:`, err);
       }
     }
-    
+
+    if (expiredDomains.length > 0) {
+      await redis.hdel('dns:records', ...expiredDomains);
+    }
+
     return records;
   },
 
   async deleteRecord(domain, type = 'temp') {
-    const persistentKey = `dns:persistent:${domain}`;
-    const tempKey = `dns:temp:${domain}`;
-    
+    const domainKey = domain.toLowerCase();
     if (type === 'all') {
-      await redis.del(persistentKey, tempKey);
-    } else {
-      const key = type === 'persistent' ? persistentKey : tempKey;
-      await redis.del(key);
+      return (await redis.hdel('dns:records', domainKey)) > 0;
     }
-    return true;
+
+    const raw = await redis.hget('dns:records', domainKey);
+    if (!raw) return false;
+
+    try {
+      const record = JSON.parse(raw);
+      const isRecordPersistent = record.isPersistent || (!record.expires);
+      if (type === 'persistent' && isRecordPersistent) {
+        return (await redis.hdel('dns:records', domainKey)) > 0;
+      } else if (type === 'temp' && !isRecordPersistent) {
+        return (await redis.hdel('dns:records', domainKey)) > 0;
+      }
+    } catch (err) {
+      console.error(`Error parsing record in deleteRecord for ${domain}:`, err);
+      return (await redis.hdel('dns:records', domainKey)) > 0;
+    }
+    return false;
   },
 
   async setTTL(domain, ttl) {
-    const key = `dns:temp:${domain}`;
-    return await redis.expire(key, ttl);
+    const domainKey = domain.toLowerCase();
+    const raw = await redis.hget('dns:records', domainKey);
+    if (raw) {
+      try {
+        const record = JSON.parse(raw);
+        record.ttl = ttl;
+        record.expires = Date.now() + ttl * 1000;
+        record.isPersistent = false;
+        await redis.hset('dns:records', domainKey, JSON.stringify(record));
+        return true;
+      } catch (err) {
+        console.error(`Error in setTTL for domain ${domain}:`, err);
+        return false;
+      }
+    }
+    return false;
   }
 };
 

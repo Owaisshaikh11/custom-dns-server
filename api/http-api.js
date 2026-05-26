@@ -1,10 +1,12 @@
 const express = require("express");
 const cors = require("cors");
+const net = require("net");
 const {
   dynamicSubdomains,
   addDynamicSubdomain,
   removeDynamicSubdomain,
 } = require("../lib/dynamic-records");
+const { DEFAULT_TTL } = require("../lib/types");
 const { getRecords } = require("../lib/record-manager");
 
 function startHttpApi(port) {
@@ -27,23 +29,36 @@ function startHttpApi(port) {
 
   app.post("/api/dns/subdomains", async (req, res) => {
     const { subdomain, domain, ipAddress, ttl, isPersistent } = req.body;
+    const subdomainValue = typeof subdomain === "string" ? subdomain.trim() : "";
+    const domainValue = typeof domain === "string" ? domain.trim() : "";
+    const ipAddressValue = typeof ipAddress === "string" ? ipAddress.trim() : "";
+    const persistent = Boolean(isPersistent);
 
-    if (!subdomain || !domain || !ipAddress) {
+    if (!subdomainValue || !domainValue || !ipAddressValue) {
       return res.status(400).json({ error: "Missing required fields" });
+    }
+
+    if (net.isIP(ipAddressValue) !== 4) {
+      return res.status(400).json({ error: "Dynamic subdomains currently support IPv4 addresses only" });
+    }
+
+    const ttlSeconds = ttl === undefined || ttl === null ? DEFAULT_TTL : Number(ttl);
+    if (!persistent && (!Number.isInteger(ttlSeconds) || ttlSeconds <= 0)) {
+      return res.status(400).json({ error: "TTL must be a positive integer" });
     }
 
     try {
       const domainName = await addDynamicSubdomain(
-        subdomain, 
-        domain, 
-        ipAddress, 
-        ttl, 
-        isPersistent
+        subdomainValue,
+        domainValue,
+        ipAddressValue,
+        ttlSeconds,
+        persistent
       );
-      res.json({ 
-        success: true, 
+      res.json({
+        success: true,
         domain: domainName,
-        isPersistent: isPersistent || false
+        isPersistent: persistent
       });
     } catch (error) {
       console.error('Error adding subdomain:', error);
@@ -53,13 +68,15 @@ function startHttpApi(port) {
 
   app.delete("/api/dns/subdomains", async (req, res) => {
     const { subdomain, domain, type = 'all' } = req.body;
+    const subdomainValue = typeof subdomain === "string" ? subdomain.trim() : "";
+    const domainValue = typeof domain === "string" ? domain.trim() : "";
 
-    if (!subdomain || !domain) {
+    if (!subdomainValue || !domainValue) {
       return res.status(400).json({ error: "Missing required fields" });
     }
 
     try {
-      const removed = await removeDynamicSubdomain(subdomain, domain, type);
+      const removed = await removeDynamicSubdomain(subdomainValue, domainValue, type);
       res.status(removed ? 200 : 404).json({ success: removed });
     } catch (error) {
       console.error('Error removing subdomain:', error);
@@ -67,8 +84,14 @@ function startHttpApi(port) {
     }
   });
 
-  app.get("/api/dns/records", (req, res) => {
-    res.json(getRecords());
+  app.get("/api/dns/records", async (req, res) => {
+    try {
+      const records = await getRecords();
+      res.json(records);
+    } catch (error) {
+      console.error('Error retrieving records:', error);
+      res.status(500).json({ error: "Failed to retrieve records" });
+    }
   });
 
   return app.listen(port, () => {

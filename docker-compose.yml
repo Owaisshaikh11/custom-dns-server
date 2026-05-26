@@ -1,12 +1,10 @@
-version: '3.8'
-
 services:
   dns-server:
     build:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "5354:5354"  # DNS server port
+      - "5354:5354/udp"  # DNS server port
       - "8053:8053"  # HTTP API port
     environment:
       - REDIS_HOST=redis

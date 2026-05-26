@@ -10,13 +10,16 @@
 ## Features
 
 - DNS server over UDP (A, AAAA, NS, MX, TXT, CNAME records)
-- dynamic subdomain management via HTTP API
+- Dynamic subdomain management via HTTP API
 - Configurable DNS records via JSON file
 - REST API for managing and querying DNS records
 - Two types of dynamic subdomains:
   - Persistent Records: For long-lived subdomains (e.g., user workspaces)
   - Ephemeral Records: For temporary subdomains with TTL (e.g., preview URLs)
-- Redis persistence for dynamic subdomains
+- Optimized Redis Hash storage model for high performance, eliminating blocking `KEYS` commands and N+1 query loops
+- Robust security safeguards including DNS pointer loop DoS protection and buffer boundary checks
+- Full IPv6 AAAA record support, handling both fully qualified and compressed/shorthand (e.g., `::1`) IPv6 formats
+- Upstream Forwarding: Automatically forwards queries for unrecognized domains to upstream DNS servers with sequential fallback and configurable timeouts
 - Docker support for easy deployment
 - Easy to extend and integrate
 
@@ -51,7 +54,7 @@
    ```sh
    docker-compose up
    ```
-   This will start both the DNS server and Redis in containers.
+   This will start both the DNS server (UDP port `5354`) and Redis in containers.
 
 ### Manual Installation
 
@@ -93,30 +96,31 @@ npm start
 ## Configuration
 
 ### DNS Records
-DNS records are stored in `config/dns-records.json`. Example format:
+DNS records are stored in `config/dns-records.json`. Example format (flat structure):
 
 ```json
 {
-  "domains": {
-    "example.com": {
-      "A": ["192.168.1.1"],
-      "AAAA": ["2001:db8::1"],
-      "NS": ["ns1.example.com", "ns2.example.com"],
-      "MX": [{ "preference": 10, "exchange": "mail.example.com" }],
-      "TXT": ["v=spf1 include:_spf.example.com ~all"]
-    },
-    "*.example.com": {
-      "A": ["192.168.1.2"]
-    }
+  "example.com": {
+    "A": ["192.168.1.1"],
+    "AAAA": ["2001:db8::1"],
+    "NS": ["ns1.example.com", "ns2.example.com"],
+    "MX": [{ "preference": 10, "exchange": "mail.example.com" }],
+    "TXT": ["v=spf1 include:_spf.example.com ~all"]
+  },
+  "*.example.com": {
+    "A": ["192.168.1.2"]
   }
 }
 ```
 
 ### Environment Variables
-- `REDIS_HOST`: Redis server host (default: localhost)
-- `REDIS_PORT`: Redis server port (default: 6379)
+- `REDIS_HOST`: Redis server host (default: `localhost`)
+- `REDIS_PORT`: Redis server port (default: `6379`)
 - `REDIS_PASSWORD`: Redis password (default: empty)
-- `REDIS_DB`: Redis database number (default: 0)
+- `REDIS_DB`: Redis database number (default: `0`)
+- `DNS_FORWARD_ENABLED`: Enable upstream forwarding fallback (default: `true`)
+- `DNS_UPSTREAM_SERVERS`: Comma-separated list of DNS servers with optional custom ports (default: `8.8.8.8,8.8.4.4`)
+- `DNS_FORWARD_TIMEOUT`: Timeout for upstream DNS queries in milliseconds (default: `2000`)
 
 ---
 
@@ -162,7 +166,7 @@ DNS records are stored in `config/dns-records.json`. Example format:
   ```
 - **Response:** 
   ```json
-  {,M
+  {
     "success": true, 
     "domain": "sub.example.com",
     "isPersistent": false
@@ -202,9 +206,11 @@ DNS_Project/
 ├── api/
 │   └── http-api.js           # HTTP API server
 ├── config/
+│   ├── dns-config.js         # DNS and forwarding settings
 │   ├── dns-records.json      # DNS records
 │   └── redis-config.js       # Redis configuration 
 ├── lib/
+│   ├── dns-forwarder.js      # Upstream query forwarding logic
 │   ├── dns-parser.js         # DNS packet parsing logic
 │   ├── dns-resolver.js       # DNS query resolution logic
 │   ├── dns-writer.js         # DNS packet writing logic
@@ -219,13 +225,11 @@ DNS_Project/
 
 ## Limitations
 
-- **Partial support of IPv6:** IPv6 is addresses aree not fully supported, tough the querytype (AAAA) is handled but Static AAAA records may not be encoded correctly, especially for compressed IPv6 formats(::).
-- **Only Handles the First Question:** always writes only the first question.
-- **Basi and not production-hardened** Intended for development, testing, or internal use and mostly for learning purposes.
+- **Only Handles the First Question:** Always writes only the first question.
+- **Basic and not production-hardened:** Intended for development, testing, or internal use and mostly for learning purposes.
 - **Limited protocol support:** Only supports UDP for DNS queries (no TCP fallback).
-- **No rate limiting or authentication:** The HTTP API is open by default, must be secured before exposing it to the internet
-- **Basic validation:** Input validation is minimal, malformed requests may cause errors.
-- **No web UI:** Management iss via API only.
+- **No rate limiting or authentication:** The HTTP API is open by default, must be secured before exposing it to the internet.
+- **No web UI:** Management is via API only.
 
 ---
 
